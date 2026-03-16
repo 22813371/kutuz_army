@@ -87,4 +87,4 @@ python main.py
 
 ## 👤 7. Контакты разработчиков
 По вопросам поддержки, баг-репортам и согласования обновлений:
-*   **Telegram:** `@ahtems`, `@flewmo`
+*   **Telegram:** `@ahtems`, `@AlexanderLaPorte`(лидер ВС РФ), `@flewmo`
