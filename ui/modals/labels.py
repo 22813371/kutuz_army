@@ -1,3 +1,5 @@
+import random
+
 import discord.ui
 
 
@@ -39,4 +41,21 @@ def screenshot_label(element: str):
 def period_label():
     return discord.ui.TextInput(
         label="Период", placeholder="17:00 - 18:00", max_length=25
+    )
+
+def sso_quiz_field(data, index):
+    options = data['o'][:]
+    random.shuffle(options)
+
+    sel = discord.ui.Select(
+        placeholder="Выберите ответ...",
+        options=[discord.SelectOption(label=opt) for opt in options]
+    )
+    return discord.ui.Label(text=f"{index}. {data['q']}"[:45], component=sel), sel
+
+def patrol_reminder():
+    return discord.ui.TextDisplay(
+        "-# Подавая запрос, вы подтверждаете знание правил ношения формы, обязуетесь быть в спецсвязи ССО, "
+        "выполнять задачи возложенные на подразделение, взаимодействовать с бойцами подразделения "
+        "и выполнять приказы его командиров."
     )

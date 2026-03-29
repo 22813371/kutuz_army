@@ -21,7 +21,7 @@
 *   `Уволить` — Увольнение с указанием причины (с автоматическим снятием ролей).
 
 **Admin-команды (Префиксные, только для администраторов):**
-*   `!refresh_roles`, `!refresh_timeoff`, `!refresh_dismissal`, `!refresh_supplies`, `!refresh_audit`, `!refresh_transfer`, `!refresh_reinstatement` — Обновление закрепленных UI-панелей в соответствующих каналах.
+*   `!refresh_roles`, `!refresh_timeoff`, `!refresh_dismissal`, `!refresh_supplies`, `!refresh_audit`, `!refresh_transfer`, `!refresh_reinstatement`, `!refresh_sso`, `!refresh_materials` — Обновление закрепленных UI-панелей в соответствующих каналах.
 
 ## 📚 3. Используемые библиотеки
 *   `discord.py` — Базовый фреймворк для работы с Discord API (вкл. `app_commands`, `tasks`).
@@ -41,7 +41,7 @@
 
 **Необходимые права бота (Bot Permissions):**
 *   `Manage Roles` (Управление ролями) — Выдача/снятие ролей званий и подразделений.
-*   `Manage Nicknames` (Управление никнеймами) — Установка формата `[УБ] Р-й | Имя Фамилия`.
+*   `Manage Nicknames` (Управление никнеймами) — Установка формата `[ВК] Р-й | Имя Фамилия`.
 *   `Read Messages / View Channels` — Просмотр каналов с заявками.
 *   `Send Messages / Send Messages in Threads` — Отправка логов и ответов.
 *   `Manage Messages` — Удаление старых UI-сообщений при обновлении меню.
@@ -87,4 +87,4 @@ python main.py
 
 ## 👤 7. Контакты разработчиков
 По вопросам поддержки, баг-репортам и согласования обновлений:
-*   **Telegram:** `@ahtems`, `@AlexanderLaPorte`(лидер ВС РФ), `@flewmo`
+*   **Telegram:** `@ahtems`, `@flewmo`

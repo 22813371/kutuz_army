@@ -12,7 +12,6 @@ if TYPE_CHECKING:
 
 from cachetools import TTLCache
 
-statics_cache = TTLCache(maxsize=1000, ttl=3600)
 names_cache = TTLCache(maxsize=1000, ttl=3600)
 
 
@@ -98,6 +97,7 @@ async def update_user_name_if_changed(
         user.first_name = first_name
         user.last_name = last_name
         await user.save()
+        invalidate_user_cache(user.discord_id)
 
         if initiator:
             from utils.audit import AuditAction, audit_logger
@@ -139,3 +139,17 @@ def display_rank(rank_index: int | None) -> str:
         return f"{config.RANK_EMOJIS[rank_index]} {config.RANKS[rank_index]}"
 
     return "Без звания"
+
+async def get_user_defaults(interaction: discord.Interaction):
+    """Получить данные пользователя для заполнения формы."""
+    user = await get_initiator(interaction)
+    user_name, static_id = None, None
+    if user:
+        if user.full_name:
+            user_name = user.full_name
+        if user.static:
+            static_id = format_game_id(user.static)
+    return user, user_name, static_id
+
+def invalidate_user_cache(user_id: int) -> None:
+    names_cache.pop(user_id, None)

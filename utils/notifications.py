@@ -102,8 +102,8 @@ async def notify_dismissed(
     title = "Увольнение по рапорту" if by_report else "Увольнение"
 
     embed = discord.Embed(
-        title=title,
-        description=f"{action_emojis[AuditAction.DISMISSED]} Вы были уволены."
+        title=f"{action_emojis[AuditAction.DISMISSED]} " + title,
+        description=f"Вы были уволены."
         f"\n\n**Причина:** {reason}",
         color=discord.Color.red(),
     )

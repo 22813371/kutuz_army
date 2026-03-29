@@ -57,6 +57,7 @@ class Bot(commands.Bot):
             logger.info(f"Synchronized {len(operations)} users from guild members")
 
     async def on_ready(self):
+        print("done")
         logger.info(f"Logged in as {self.user} (ID: {self.user.id})")
         logger.info("------")
         await self._sync_users()
@@ -78,7 +79,6 @@ class Bot(commands.Bot):
         self.tree.on_error = on_tree_error
 
         guild = discord.Object(id=config.GUILD_ID)
-        self.tree.copy_global_to(guild=guild)
         await self.tree.sync(guild=guild)
         logger.info(f"Slash commands synced to guild {config.GUILD_ID}")
 

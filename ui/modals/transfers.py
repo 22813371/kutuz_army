@@ -51,6 +51,15 @@ class TransferModal(discord.ui.Modal):
         online_prime_text = self.online_prime.value
         motivation_text = self.motivation.value
 
+        from config import nickname_regex
+        if not nickname_regex.match(selected_nickname):
+            await interaction.response.send_message(
+                "### Вы ввели некорректное имя и фамилию. "
+                "Правильный формат: Иван Иванов.",
+                ephemeral=True,
+            )
+            return
+
         user = await User.find_one(User.discord_id == interaction.user.id)
 
         min_rank = (

@@ -3,7 +3,6 @@ import discord
 import config
 from database.models import User, Blacklist
 from utils.user_data import format_game_id
-from utils.notifications import notify_blacklisted
 
 
 async def check_and_apply_penalty(
@@ -54,7 +53,6 @@ async def check_and_apply_penalty(
                 embed=bl_embed,
             )
 
-        await notify_blacklisted(interaction.client, target_user_db.discord_id, "Неустойка", "14 дней")
         return True
 
     return False

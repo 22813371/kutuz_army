@@ -241,12 +241,13 @@ class DismissalManagementButton(
 
             # Уведомление в ЛС об увольнении
             await notify_dismissed(
-                interaction.client, req.user_id, "Увольнение по рапорту", by_report=True
+                interaction.client, req.user_id, f"Увольнение по рапорту #{req.id}", by_report=True
             )
 
             embed = await req.to_embed(interaction.client)
             if penalty_applied:
                 embed.set_footer(text="Автоматически выдан ЧС за неустойку.")
+                await notify_blacklisted(interaction.client, req.user_id, "Неустойка", "14 дней")
 
             await interaction.message.edit(
                 content=f"<@{req.user_id}> {interaction.user.mention}",

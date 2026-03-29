@@ -7,27 +7,16 @@ from discord import Interaction, InteractionResponse
 from discord._types import ClientT
 
 import config
-from database.models import TimeoffRequest
+from database.models import TimeoffRequest, User
 from texts import timeoff_title, timeoff_submission, timeoff_description
 from ui.views.indicators import indicator_view
 from utils.exceptions import StaticInputRequired
 from utils.notifications import notify_timeoff_approved, notify_timeoff_rejected
-from utils.user_data import format_game_id, get_initiator
+from utils.user_data import get_initiator, get_user_defaults
 
 closed_requests = set()
 
 MSK = datetime.timezone(datetime.timedelta(hours=3))
-
-async def _get_user_defaults(interaction: discord.Interaction):
-    """Получить данные пользователя для заполнения формы."""
-    user = await get_initiator(interaction)
-    user_name, static_id = None, None
-    if user:
-        if user.full_name:
-            user_name = user.full_name
-        if user.static:
-            static_id = format_game_id(user.static)
-    return user, user_name, static_id
 
 
 async def _check_can_apply(interaction: discord.Interaction) -> bool:
@@ -81,7 +70,7 @@ async def timeoff_button_callback(interaction: discord.Interaction):
     if not await _check_can_apply(interaction):
         return
 
-    _, user_name, static_id = await _get_user_defaults(interaction)
+    _, user_name, static_id = await get_user_defaults(interaction)
 
     from ui.modals.timeoff import TimeoffRequestModal
     await interaction.response.send_modal(
@@ -115,21 +104,32 @@ class TimeoffApplyView(discord.ui.LayoutView):
 
 async def check_approve_permission(
     interaction: Interaction[ClientT], request: TimeoffRequest
-) -> bool:
-    """Проверить права на одобрение заявки в зависимости от типа."""
+) -> tuple[bool, str]:
+    """
+    Проверяет права на одобрение/отклонение заявки.
+    Возвращает (Результат, Сообщение об ошибке)
+    """
     try:
-        user = await get_initiator(interaction)
+        approver = await get_initiator(interaction)
     except StaticInputRequired:
-        return False
+        return False, ""
 
-    if not user:
-        return False
+    if not approver:
+        return False, "Вы не найдены в базе данных."
 
-    # Проверка по званию
-    if (user.rank or 0) >= config.RankIndex.MAJOR:
-        return True
+    # Проверка минимального звания (Майор)
+    if (approver.rank or 0) < config.RankIndex.MAJOR:
+        return False, "Для рассмотрения заявок на отгул требуется звание Майор и выше."
 
-    return False
+    requester = await User.find_one(User.discord_id == request.user_id)
+    if not requester:
+        return False, "Заявитель не найден в базе данных."
+
+    # Проверка иерархии: ранг одобряющего должен быть СТРОГО БОЛЬШЕ ранга заявителя
+    if (approver.rank or 0) <= (requester.rank or 0):
+        return False, "Вы не можете рассматривать заявку человека, чье звание равно вашему или выше."
+
+    return True, ""
 
 
 class ApproveTimeoffButton(
@@ -169,14 +169,11 @@ class ApproveTimeoffButton(
             return
         closed_requests.add(self.request_id)
 
-        # Проверка прав
-        if not await check_approve_permission(interaction, request):
+        is_allowed, error_msg = await check_approve_permission(interaction, request)
+        if not is_allowed:
             closed_requests.discard(self.request_id)
-            await interaction.response.send_message(
-                f"У вас нет прав для одобрения этой заявки. "
-                f"Требуется звание: Майор+",
-                ephemeral=True,
-            )
+            if error_msg:
+                await interaction.response.send_message(error_msg, ephemeral=True)
             return
 
         request.approved = True
@@ -234,13 +231,11 @@ class RejectTimeoffButton(
         closed_requests.add(self.request_id)
 
         # Проверка прав
-        if not await check_approve_permission(interaction, request):
+        is_allowed, error_msg = await check_approve_permission(interaction, request)
+        if not is_allowed:
             closed_requests.discard(self.request_id)
-            await interaction.response.send_message(
-                f"У вас нет прав для отклонения этой заявки. "
-                f"Требуется звание: Майор+",
-                ephemeral=True,
-            )
+            if error_msg:
+                await interaction.response.send_message(error_msg, ephemeral=True)
             return
 
         request.approved = False

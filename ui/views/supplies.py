@@ -197,7 +197,7 @@ class ItemSelectView(discord.ui.View):
             else:
                 self.request.items[item_name] = new_qty
 
-            await self.request.save()
+            await self.request.set({"items": self.request.items})
 
             await self.parent_view.refresh_embed(self.parent_view.original_interaction)
             await interaction.delete_original_response()
@@ -274,7 +274,7 @@ class SupplyBuilderView(discord.ui.View):
 
     async def clear_cart_callback(self, interaction: discord.Interaction):
         self.request.items = {}
-        await self.request.save()
+        await self.request.set({"items": {}})
         await self.refresh_embed(interaction)
 
     async def cancel_callback(self, interaction: discord.Interaction):
@@ -294,9 +294,16 @@ class SupplyBuilderView(discord.ui.View):
             await interaction.response.send_message(f"❌ {error_msg}", ephemeral=True)
             return
 
-        await self.request.save()
-
         if self.is_edit_mode:
+            # Перечитываем из БД, чтобы не перезаписать статус, выставленный параллельным Approve
+            fresh = await SupplyRequest.find_one(SupplyRequest.id == self.request.id)
+            if not fresh or fresh.status != "PENDING":
+                await interaction.response.send_message(
+                    "❌ Заявка уже обработана другим администратором.", ephemeral=True
+                )
+                return
+            await fresh.set({"items": self.request.items})
+
             # Обновляем оригинальное сообщение в канале
             if self.request.message_id:
                 channel = interaction.client.get_channel(
@@ -406,7 +413,7 @@ class SupplyManageButton(
         user = await get_initiator(interaction)
 
         if self.action == "edit":
-            if user.discord_id != req.user_id and (user.rank or 0) < 12:
+            if user.discord_id != req.user_id and (user.rank or 0) < config.RankIndex.MAJOR:
                 await interaction.response.send_message(
                     "❌ У вас недостаточно прав для этого действия (Требуется: Майор+).",
                     ephemeral=True,
@@ -415,9 +422,7 @@ class SupplyManageButton(
             await handle_edit(interaction, req)
             return
 
-
-        # Проверка прав: Майор и выше. Индекс Майора = 12
-        if (user.rank or 0) < 12:
+        if (user.rank or 0) < config.RankIndex.MAJOR:
             await interaction.response.send_message(
                 "❌ У вас недостаточно прав для этого действия (Требуется: Майор+).",
                 ephemeral=True,
@@ -468,9 +473,11 @@ class SupplyCreateView(discord.ui.View):
             )
             return
 
+        cutoff = datetime.datetime.now() - datetime.timedelta(hours=24)
         existing = await SupplyRequest.find_one(
             SupplyRequest.user_id == interaction.user.id,
             SupplyRequest.status == "PENDING",
+            SupplyRequest.created_at >= cutoff,
         )
         if existing:
             await interaction.response.send_message(

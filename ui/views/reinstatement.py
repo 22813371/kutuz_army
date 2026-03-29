@@ -72,7 +72,8 @@ async def interaction_check(interaction: Interaction[ClientT], /) -> bool:
     user = await get_initiator(interaction)
     if (user.rank or 0) >= 14:
         return True
-    if divisions.get_division(user.division).abbreviation == "УВП":
+    div = divisions.get_division(user.division) if user.division else None
+    if div and div.abbreviation == "УВП":
         return True
     return False
 
