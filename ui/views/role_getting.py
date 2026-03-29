@@ -15,23 +15,11 @@ from ui.views.indicators import indicator_view
 from utils.audit import AuditAction, audit_logger
 from utils.exceptions import StaticInputRequired
 from utils.notifications import notify_role_approved, notify_role_rejected
-from utils.user_data import format_game_id, get_initiator
+from utils.user_data import format_game_id, get_initiator, get_user_defaults
 
 logger = logging.getLogger(__name__)
 
 closed_requests = set()
-
-
-async def _get_user_defaults(interaction: discord.Interaction):
-    """Получить данные пользователя для заполнения формы."""
-    user = await get_initiator(interaction)
-    user_name, static_id = None, None
-    if user:
-        if user.full_name:
-            user_name = user.full_name
-        if user.static:
-            static_id = format_game_id(user.static)
-    return user, user_name, static_id
 
 
 async def _check_can_apply(interaction: discord.Interaction) -> bool:
@@ -65,7 +53,7 @@ async def army_button_callback(interaction: discord.Interaction):
     if not await _check_can_apply(interaction):
         return
 
-    _, user_name, static_id = await _get_user_defaults(interaction)
+    _, user_name, static_id = await get_user_defaults(interaction)
 
     from ui.modals.role_getting import RoleRequestModal
 
@@ -79,7 +67,7 @@ async def supply_access_button_callback(interaction: discord.Interaction):
     if not await _check_can_apply(interaction):
         return
 
-    _, user_name, static_id = await _get_user_defaults(interaction)
+    _, user_name, static_id = await get_user_defaults(interaction)
 
     from ui.modals.role_getting import SupplyAccessModal
 
@@ -93,7 +81,7 @@ async def gov_employee_button_callback(interaction: discord.Interaction):
     if not await _check_can_apply(interaction):
         return
 
-    _, user_name, static_id = await _get_user_defaults(interaction)
+    _, user_name, static_id = await get_user_defaults(interaction)
 
     from ui.modals.role_getting import GovEmployeeModal
 
@@ -180,7 +168,7 @@ async def check_approve_permission(
         division = divisions.get_division(user.division)
         if not division:
             return False
-        if division.abbreviation == "ВК":
+        if division.abbreviation == "УБ":
             return True
         if division.positions:
             for position in division.positions:

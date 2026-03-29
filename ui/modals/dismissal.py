@@ -1,5 +1,6 @@
 import discord
 
+from config import nickname_regex
 from database import divisions
 from database.counters import get_next_id
 from database.models import DismissalRequest, DismissalType, User
@@ -26,6 +27,14 @@ class DismissalModal(discord.ui.Modal):
         if not static_int:
             await interaction.response.send_message(
                 "❌ Некорректный статик.", ephemeral=True
+            )
+            return
+
+        if not nickname_regex.match(self.name.value):
+            await interaction.response.send_message(
+                "### Вы ввели некорректное имя и фамилию. "
+                "Правильный формат: Иван Иванов.",
+                ephemeral=True,
             )
             return
 
@@ -62,7 +71,7 @@ class DismissalModal(discord.ui.Modal):
         if user_division and user_division.positions:
             division = user_division
         else:
-            division = divisions.get_division_by_abbreviation("ВК")
+            division = divisions.get_division_by_abbreviation("УБ")
         positions = division.positions if division else []
         mentions = [
             f"<@&{pos.role_id}>"

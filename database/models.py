@@ -90,7 +90,7 @@ class User(Document):
         if self.division is not None:
             div = divisions.get_division(self.division)
             if div:
-                if div.abbreviation == "ВА":
+                if div.abbreviation == "УР":
                     parts.append(div.abbreviation)
                 else:
                     parts.append(transliterate_abbreviation(div.abbreviation))
@@ -557,6 +557,116 @@ class TransferRequest(Document):
     class Settings:
         name = "transfer_requests"
 
+class SSOPatrolRequest(Document):
+    id: int
+    user_id: int
+    full_name: str
+    reason: str
+    date: datetime.datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc))
+    status: str = "PENDING"
+    reviewer_id: int | None = None
+
+    async def to_embed(self, bot, failed_question=None):
+        user = await User.find_one(User.discord_id == self.user_id)
+        today = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3))).strftime('%d.%m.%Y')
+
+        if failed_question:
+            title = "❌ Провал проверки знаний"
+            color = discord.Color.red()
+        else:
+            title = f"Запрос формы Сил Специальных Операций #{self.id}"
+            status_colors = {
+                "PENDING": discord.Color.gold(),
+                "APPROVED": discord.Color.green(),
+                "REJECTED": discord.Color.red(),
+            }
+            color = status_colors.get(self.status, discord.Color.blue())
+
+        embed = discord.Embed(title=title, color=color)
+        embed.add_field(name="Имя Фамилия", value=self.full_name, inline=True)
+        embed.add_field(name="Статик", value=format_game_id(user.static), inline=True)
+        embed.add_field(name="Звание", value=display_rank(user.rank), inline=False)
+
+        if failed_question:
+            embed.add_field(name="Вопрос", value=failed_question, inline=False)
+        else:
+            embed.add_field(name="Причина", value=self.reason, inline=False)
+
+        embed.set_footer(text=f"Дата: {today}")
+
+        return embed
+
+    class Settings:
+        name = "sso_patrol_requests"
+
+
+class MaterialsReport(Document):
+    user_id: int
+    full_name: str
+    quantity: int
+    evidence: str
+    created_at: datetime.datetime = Field(
+        default_factory=lambda: datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3)))
+    )
+
+    async def to_embed(self, user: User):
+        price = f"{self.quantity * config.MATERIAL_PRICE:,}".replace(',', '.')
+
+        embed = discord.Embed(
+            title="Отчет о продаже материалов",
+            color=discord.Color.gold(),
+            timestamp=self.created_at
+        )
+        embed.add_field(name="Имя Фамилия", value=self.full_name)
+        embed.add_field(name="Статик", value=format_game_id(user.static))
+        embed.add_field(name="Звание", value=display_rank(user.rank), inline=False)
+        embed.add_field(name="Количество", value=f"{self.quantity:,} ед.".replace(",", "."), inline=True)
+        embed.add_field(name="Сумма", value=f"{price} ₽", inline=True)
+        embed.add_field(name="Доказательства", value=self.evidence, inline=False)
+        return embed
+
+    class Settings:
+        name = "materials_reports"
+
+
+class LogisticsType(str, Enum):
+    ORBITA = "РЛС \"Орбита\""
+    OBJECT7 = "Объект 7"
+    WAREHOUSE = "Военные склады"
+
+
+class LogisticsRequest(Document):
+    id: int
+    user_id: int
+    nickname: str
+    faction: str
+    supply_type: LogisticsType
+    status: str = "PENDING"  # PENDING, APPROVED, REJECTED, EXPIRED
+    reviewer_name: str | None = None
+    message_id: int | None = None
+    created_at: datetime.datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc))
+
+    async def to_embed(self):
+        status_map = {
+            "PENDING": discord.Color.gold(),
+            "APPROVED": discord.Color.green(),
+            "REJECTED": discord.Color.red(),
+            "EXPIRED": discord.Color.dark_grey(),
+        }
+        color = status_map.get(self.status, discord.Color.default())
+
+        embed = discord.Embed(
+            title=f"Поставка: {self.supply_type.value}",
+            color=color,
+            timestamp=self.created_at
+        )
+        embed.add_field(name="Заявитель", value=self.nickname, inline=True)
+        embed.add_field(name="Организация", value=self.faction, inline=True)
+
+        return embed
+
+    class Settings:
+        name = "logistics_requests"
 
 class BottomMessage(Document):
     channel_id: Indexed(int, unique=True)

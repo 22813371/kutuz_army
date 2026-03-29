@@ -10,13 +10,15 @@ from bot import Bot
 from config import RANK_EMOJIS, RANKS, EXCLUDED_ROLES, RankIndex
 from database import divisions
 from database.models import User
+from error_handling import on_tree_error
 from utils.audit import AuditAction, audit_logger
 from utils.dismissal_logic import check_and_apply_penalty
+from utils.exceptions import StaticInputRequired
 from utils.notifications import (
     notify_demoted,
     notify_dismissed,
     notify_position_changed,
-    notify_promoted,
+    notify_promoted, notify_blacklisted,
 )
 from utils.roles import to_division, to_position, to_rank
 from utils.user_data import format_game_id, get_initiator, display_rank
@@ -43,6 +45,10 @@ class UserEdit(commands.Cog):
         )
         self.bot.tree.add_command(self.dismiss_user)
 
+        self.edit_user.error(on_tree_error)
+        self.fast_promotion.error(on_tree_error)
+        self.dismiss_user.error(on_tree_error)
+
     async def _check_permissions(
         self, interaction: discord.Interaction, target_user_db: User
     ) -> bool:
@@ -54,7 +60,7 @@ class UserEdit(commands.Cog):
             )
             return False
 
-        if (editor_db.rank or 0) < 11:
+        if (editor_db.rank or 0) < RankIndex.CAPTAIN:
             await interaction.response.send_message(
                 f"❌ Доступ к управлению кадрами разрешен "
                 f"со звания {display_rank(RankIndex.CAPTAIN)}.",
@@ -163,6 +169,10 @@ class UserEdit(commands.Cog):
             old_info = copy.deepcopy(user_info)
             initiator_db = await get_initiator(interaction)
 
+            await modal_interaction.response.send_message(
+                "✅ Выполняются действия...", ephemeral=True
+            )
+
             audit_msg = await audit_logger.log_action(
                 AuditAction.DISMISSED,
                 interaction.user,
@@ -171,7 +181,7 @@ class UserEdit(commands.Cog):
                 additional_info={"Причина": reason_input.value},
             )
 
-            await check_and_apply_penalty(
+            penalty_applied = await check_and_apply_penalty(
                 modal_interaction, user_info, initiator_db, audit_msg.jump_url
             )
 
@@ -180,8 +190,8 @@ class UserEdit(commands.Cog):
             user_info.position = None
             await user_info.save()
 
-            await modal_interaction.response.send_message(
-                content=f"✅ {user.mention} уволен.", ephemeral=True
+            await modal_interaction.edit_original_response(
+                content=f"✅ {user.mention} уволен."
             )
 
             try:
@@ -193,6 +203,9 @@ class UserEdit(commands.Cog):
             await notify_dismissed(
                 interaction.client, user.id, reason_input.value, by_report=False
             )
+
+            if penalty_applied:
+                await notify_blacklisted(interaction.client, user.id, "Неустойка", "14 дней")
 
         confirm_modal.add_item(reason_input)
         rank_name = (
@@ -218,6 +231,15 @@ class UserEdit(commands.Cog):
             return
 
         if not await self._check_permissions(interaction, user_info):
+            return
+
+        user_roles_ids = [role.id for role in user.roles]
+        if any(rid in config.PENALTY_ROLES for rid in user_roles_ids) or config.INVESTIGATION_ROLE in user_roles_ids:
+            await interaction.response.send_message(
+                "❌ Вы не можете повысить военнослужащего "
+                "с активными дисциплинарными взысканиями или под расследованием.",
+                ephemeral=True
+            )
             return
 
         old_rank = user_info.rank
@@ -324,6 +346,8 @@ class UserEdit(commands.Cog):
                     user_info.full_name != old_full_name
                     or user_info.static != old_static
                 ):
+                    from utils.user_data import invalidate_user_cache
+                    invalidate_user_cache(user.id)
                     await audit_logger.log_action(
                         AuditAction.NICKNAME_CHANGED, modal_inter.user, user
                     )
@@ -378,6 +402,18 @@ class UserEdit(commands.Cog):
             editor = await get_initiator(interaction)
             new_rank = int(select_rank.values[0])
 
+            old_rank = user_info.rank if user_info.rank is not None else -1
+            if new_rank > old_rank:
+                user_roles_ids = [role.id for role in user.roles]
+                if any(rid in config.PENALTY_ROLES for rid in
+                       user_roles_ids) or config.INVESTIGATION_ROLE in user_roles_ids:
+                    await interaction.response.send_message(
+                        "❌ Вы не можете повысить военнослужащего "
+                        "с активными дисциплинарными взысканиями или под расследованием.",
+                        ephemeral=True
+                    )
+                    return
+
             if (editor.rank or 0) <= new_rank:
                 await interaction.response.send_message(
                     "❌ Вы не можете присвоить звание выше или равное вашему.",
@@ -385,7 +421,6 @@ class UserEdit(commands.Cog):
                 )
                 return
 
-            old_rank = user_info.rank
             user_info.rank = new_rank
             await user_info.save()
 
