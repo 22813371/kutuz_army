@@ -79,7 +79,7 @@ class Bot(commands.Bot):
         self.tree.on_error = on_tree_error
 
         guild = discord.Object(id=config.GUILD_ID)
-        await self.tree.sync(guild=guild)
+        await self.tree.sync()
         logger.info(f"Slash commands synced to guild {config.GUILD_ID}")
 
     async def getch_user(self, discord_id: int):
