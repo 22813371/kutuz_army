@@ -10,8 +10,8 @@ from bot import Bot
 
 logger = logging.getLogger(__name__)
 
-# 21:00 по МСК
-DAILY_TIME = datetime.time(hour=18, minute=0, tzinfo=datetime.timezone.utc)
+# 23:00 по МСК
+DAILY_TIME = datetime.time(hour=20, minute=0, tzinfo=datetime.timezone.utc)
 PICS_PATH = Path("./daily_pics").resolve()
 
 

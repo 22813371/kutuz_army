@@ -13,7 +13,8 @@ from ui.modals.labels import (
     name_component,
     period_label,
 )
-from ui.views.timeoff import ApproveTimeoffButton, RejectTimeoffButton, TimeoffCancelButton
+from ui.views.timeoff import TimeoffManagementButton, TimeoffCancelButton
+
 
 class TimeoffRequestModal(discord.ui.Modal, title="Заявление на отгул"):
     name = name_component()
@@ -26,11 +27,11 @@ class TimeoffRequestModal(discord.ui.Modal, title="Заявление на от�
     async def on_submit(self, interaction: discord.Interaction):
         opened_request = await TimeoffRequest.find_one(
             TimeoffRequest.user_id == interaction.user.id,
-            TimeoffRequest.checked == False,  # noqa: E712
+            TimeoffRequest.status == "PENDING",  # noqa: E712
         )
         if opened_request is not None:
             await interaction.response.send_message(
-                "### У вас уже есть открытое заявление на рассмотрении.\n"
+                f"### У вас уже есть открытое заявление #{opened_request.id} на рассмотрении.\n"
                 "Ожидайте его рассмотрения.",
                 ephemeral=True,
             )
@@ -59,8 +60,8 @@ class TimeoffRequestModal(discord.ui.Modal, title="Заявление на от�
         await request.create()
 
         view = discord.ui.View(timeout=None)
-        view.add_item(ApproveTimeoffButton(request_id=request.id))
-        view.add_item(RejectTimeoffButton(request_id=request.id))
+        view.add_item(TimeoffManagementButton("approve", request.id))
+        view.add_item(TimeoffManagementButton("reject", request.id))
         view.add_item(TimeoffCancelButton(request_id=request.id))
 
         division = divisions.get_division(requester.division)

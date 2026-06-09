@@ -185,3 +185,74 @@ async def notify_timeoff_rejected(bot, user_id: int) -> bool:
         color=discord.Color.red(),
     )
     return await _send_dm(bot, user_id, embed)
+
+async def notify_leave_approved(bot, user_id: int, request) -> bool:
+    """Уведомление об одобрении отпуска."""
+    import datetime as _dt
+
+    type_label = "IC" if request.leave_type.value == "IC" else "OOC"
+
+    def _to_utc(dt):
+        if dt is None:
+            return None
+        return dt.replace(tzinfo=_dt.timezone.utc) if dt.tzinfo is None else dt
+
+    starts_at_fmt = (
+        discord.utils.format_dt(_to_utc(request.starts_at), style="d")
+        if request.starts_at else "—"
+    )
+    ends_at_fmt = (
+        discord.utils.format_dt(_to_utc(request.ends_at), style="d")
+        if request.ends_at else "—"
+    )
+
+    embed = discord.Embed(
+        title="✅ Отпуск одобрен",
+        description=(
+            f"Ваш **{type_label}** отпуск одобрен.\n\n"
+            f"**Начинается:** {starts_at_fmt}\n"
+            f"**Истекает:** {ends_at_fmt}"
+        ),
+        color=discord.Color.green(),
+    )
+    embed.set_footer(text="Хорошего отдыха!")
+    return await _send_dm(bot, user_id, embed)
+
+
+async def notify_leave_rejected(bot, user_id: int, request) -> bool:
+    """Уведомление об отклонении заявки на отпуск."""
+
+    type_label = "IC" if request.leave_type.value == "IC" else "OOC"
+
+    embed = discord.Embed(
+        title="❌ Заявка на отпуск отклонена",
+        description=f"Ваша заявка на **{type_label}** отпуск была отклонена.",
+        color=discord.Color.red(),
+    )
+    return await _send_dm(bot, user_id, embed)
+
+
+async def notify_leave_expired(bot, user_id: int, request) -> bool:
+    """Уведомление об истечении срока отпуска."""
+
+    type_label = "IC" if request.leave_type.value == "IC" else "OOC"
+
+    embed = discord.Embed(
+        title="🕐 Отпуск завершён",
+        description=f"Ваш **{type_label}** отпуск #{request.id} истёк.",
+        color=discord.Color.dark_grey(),
+    )
+    return await _send_dm(bot, user_id, embed)
+
+
+async def notify_leave_cancelled(bot, user_id: int, request) -> bool:
+    """Уведомление об аннулировании отпуска."""
+
+    type_label = "IC" if request.leave_type.value == "IC" else "OOC"
+
+    embed = discord.Embed(
+        title="🚫 Отпуск аннулирован",
+        description=f"Ваш **{type_label}** отпуск #{request.id} был аннулирован.",
+        color=discord.Color.dark_red(),
+    )
+    return await _send_dm(bot, user_id, embed)

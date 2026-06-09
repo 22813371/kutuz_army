@@ -15,8 +15,6 @@ from utils.user_data import format_game_id, get_initiator
 
 logger = logging.getLogger(__name__)
 
-closed_requests = set()
-
 
 async def open_modal(interaction: discord.Interaction, d_type: DismissalType):
     user_db = await get_initiator(interaction)
@@ -124,20 +122,31 @@ class DismissalManagementButton(
         return cls(match.group("action"), int(match.group("id")))
 
     async def callback(self, interaction: discord.Interaction):
+        await interaction.response.send_message("⏳ Выполняются действия...", ephemeral=True)
+
+        from utils.mongo_lock import try_lock
+        if not await try_lock(DismissalRequest, self.request_id, "status", "PROCESSING", "PENDING"):
+            await interaction.edit_original_response(content=f"❌ Заявка #{self.request_id} не найдена или уже обработана.")
+            return
+
         officer = await get_initiator(interaction)
         if not officer or (officer.rank or 0) < config.CAPTAIN_RANK_INDEX:
-            await interaction.response.send_message(
-                "❌ Доступно со звания Капитан.", ephemeral=True
+            await DismissalRequest.get_pymongo_collection().update_one(
+                {"_id": self.request_id}, {"$set": {"status": "PENDING"}}
             )
+            await interaction.edit_original_response(content="❌ Доступно со звания Капитан.")
             return
 
         req = await DismissalRequest.find_one(DismissalRequest.id == self.request_id)
-        if not req or req.status != "PENDING" or self.request_id in closed_requests:
-            await interaction.response.send_message(
-                "❌ Заявка не найдена или уже обработана.", ephemeral=True
+
+        if (req.rank_index or 0) >= officer.rank:
+            await DismissalRequest.get_pymongo_collection().update_one(
+                {"_id": self.request_id}, {"$set": {"status": "PENDING"}}
+            )
+            await interaction.edit_original_response(
+                content="❌ Вы не можете увольнять пользователей равного или старшего звания."
             )
             return
-        closed_requests.add(self.request_id)
 
         if self.action == "reject":
             req.status = "REJECTED"
@@ -147,40 +156,26 @@ class DismissalManagementButton(
 
             embed = await req.to_embed(interaction.client)
             try:
-                await interaction.response.edit_message(
+                await interaction.message.edit(
                     content=f"<@{req.user_id}> {interaction.user.mention}",
                     embed=embed,
                     view=None,
                 )
             except discord.NotFound:
                 pass
+            await interaction.edit_original_response(content="✅ Рапорт отклонён.")
             return
 
         if self.action == "approve":
             target_user_db = await User.find_one(User.discord_id == req.user_id)
             if not target_user_db:
-                closed_requests.discard(self.request_id)
-                await interaction.response.send_message(
-                    "❌ Пользователь не найден в БД.", ephemeral=True
+                await DismissalRequest.get_pymongo_collection().update_one(
+                    {"_id": self.request_id}, {"$set": {"status": "PENDING"}}
                 )
+                await interaction.edit_original_response(content="❌ Пользователь не найден в БД.")
                 return
 
-            if (officer.rank or 0) <= (target_user_db.rank or 0):
-                closed_requests.discard(self.request_id)
-                await interaction.response.send_message(
-                    "❌ Вы не можете уволить этого пользователя, так как его "
-                    "звание выше или равно вашему.",
-                    ephemeral=True,
-                )
-                return
-
-            await interaction.response.send_message(
-                "✅ Выполняются действия...", ephemeral=True
-            )
-
-            target_user_db.first_name, target_user_db.last_name = req.full_name.split(
-                " ", 1
-            )
+            target_user_db.first_name, target_user_db.last_name = req.full_name.split(" ", 1)
 
             audit_msg = await audit_logger.log_action(
                 AuditAction.DISMISSED,
@@ -188,7 +183,7 @@ class DismissalManagementButton(
                 req.user_id,
                 additional_info={
                     "Причина": f"[Рапорт на увольнение #{req.id}]"
-                    f"({interaction.message.jump_url})"
+                               f"({interaction.message.jump_url})"
                 },
             )
 
@@ -201,6 +196,9 @@ class DismissalManagementButton(
             target_user_db.position = None
             await target_user_db.save()
 
+            from utils.dismissal_logic import cleanup_user_leaves
+            await cleanup_user_leaves(interaction.client, req.user_id)
+
             target_member = await interaction.client.getch_member(req.user_id)
             if target_member:
                 try:
@@ -208,8 +206,8 @@ class DismissalManagementButton(
                     new_roles = [
                         role for role in target_member.roles
                         if role.is_default()
-                        or role.id in excluded
-                        or not role.is_assignable()
+                           or role.id in excluded
+                           or not role.is_assignable()
                     ]
 
                     prefix = "Уволен | "
@@ -239,7 +237,6 @@ class DismissalManagementButton(
             req.reviewed_at = datetime.datetime.now()
             await req.save()
 
-            # Уведомление в ЛС об увольнении
             await notify_dismissed(
                 interaction.client, req.user_id, f"Увольнение по рапорту #{req.id}", by_report=True
             )
@@ -254,7 +251,7 @@ class DismissalManagementButton(
                 embed=embed,
                 view=None,
             )
-
+            await interaction.edit_original_response(content="✅ Рапорт одобрен, сотрудник уволен.")
 
 class DismissalCancelButton(
     discord.ui.DynamicItem[discord.ui.Button], template=r"dismiss:cancel:(?P<id>\d+)"

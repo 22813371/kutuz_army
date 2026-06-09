@@ -69,15 +69,13 @@ async def handle_approve(interaction: discord.Interaction, req: SupplyRequest):
     target_user = await User.find_one(User.discord_id == req.user_id)
 
     if target_user.last_supply_at:
-        cooldown_time = target_user.last_supply_at + datetime.timedelta(hours=3)
+        cooldown_time = target_user.last_supply_at + datetime.timedelta(hours=6)
         if datetime.datetime.now() < cooldown_time:
             remaining = cooldown_time - datetime.datetime.now()
             hours, remainder = divmod(int(remaining.total_seconds()), 3600)
             minutes, _ = divmod(remainder, 60)
-            await interaction.response.send_message(
-                f"❌ У пользователя КД на получение склада. "
-                f"Осталось: {hours}ч {minutes}м.",
-                ephemeral=True,
+            await interaction.edit_original_response(
+                content=f"❌ У пользователя КД на получение склада. Осталось: {hours}ч {minutes}м."
             )
             return
 
@@ -101,10 +99,8 @@ async def handle_approve(interaction: discord.Interaction, req: SupplyRequest):
         await other.save()
 
     embed = await req.to_embed(interaction.client)
-    await interaction.response.edit_message(embed=embed, view=None)
-    await interaction.followup.send(
-        f"✅ Заявка #{req.id} одобрена. КД установлено.", ephemeral=True
-    )
+    await interaction.message.edit(embed=embed, view=None)
+    await interaction.edit_original_response(content=f"✅ Заявка #{req.id} одобрена. КД установлено.")
 
     try:
         embed_audit = discord.Embed(
@@ -143,8 +139,8 @@ async def handle_reject(interaction: discord.Interaction, req: SupplyRequest):
     await req.save()
 
     embed = await req.to_embed(interaction.client)
-    await interaction.response.edit_message(embed=embed, view=None)
-    await interaction.followup.send(f"❌ Заявка #{req.id} отклонена.", ephemeral=True)
+    await interaction.message.edit(embed=embed, view=None)
+    await interaction.edit_original_response(content=f"❌ Заявка #{req.id} отклонена.")
 
 
 async def handle_edit(interaction: discord.Interaction, req: SupplyRequest):
@@ -152,7 +148,7 @@ async def handle_edit(interaction: discord.Interaction, req: SupplyRequest):
     embed = await req.to_embed(interaction.client)
     embed.title = f"🛠 Редактирование заявки #{req.id}"
     embed.set_footer(text="Режим редактирования (Майор+)")
-    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+    await interaction.edit_original_response(embed=embed, view=view)
 
 
 class ItemSelectView(discord.ui.View):
@@ -210,10 +206,9 @@ class CategorySelectButton(discord.ui.Button):
         self.request = request
 
     async def callback(self, interaction: discord.Interaction):
+        await interaction.response.send_message(f"⌛ Открываем категорию: {self.category}...", ephemeral=True)
         view = ItemSelectView(self.category, self.request, self.view)
-        await interaction.response.send_message(
-            f"📂 Категория: **{self.category}**", view=view, ephemeral=True
-        )
+        await interaction.edit_original_response(content=f"📂 Категория: **{self.category}**", view=view)
 
 
 class SupplyBuilderView(discord.ui.View):
@@ -278,7 +273,7 @@ class SupplyBuilderView(discord.ui.View):
         await self.refresh_embed(interaction)
 
     async def cancel_callback(self, interaction: discord.Interaction):
-        if not self.is_edit_mode:
+        if not self.is_edit_mode and self.request.status == "DRAFT":
             await self.request.delete()
         await interaction.response.edit_message(
             content="❌ Действие отменено.", embed=None, view=None
@@ -289,19 +284,17 @@ class SupplyBuilderView(discord.ui.View):
             await interaction.response.send_message("❌ Корзина пуста!", ephemeral=True)
             return
 
+        await interaction.response.send_message("⏳ Сохраняем и отправляем вашу заявку...", ephemeral=True)
+
         is_valid, error_msg = check_limits(self.request.items)
         if not is_valid:
-            await interaction.response.send_message(f"❌ {error_msg}", ephemeral=True)
-            return
+            return await interaction.edit_original_response(content=f"❌ {error_msg}")
 
         if self.is_edit_mode:
             # Перечитываем из БД, чтобы не перезаписать статус, выставленный параллельным Approve
             fresh = await SupplyRequest.find_one(SupplyRequest.id == self.request.id)
             if not fresh or fresh.status != "PENDING":
-                await interaction.response.send_message(
-                    "❌ Заявка уже обработана другим администратором.", ephemeral=True
-                )
-                return
+                return await interaction.edit_original_response(content="❌ Заявка уже обработана другим офицером.")
             await fresh.set({"items": self.request.items})
 
             # Обновляем оригинальное сообщение в канале
@@ -317,22 +310,18 @@ class SupplyBuilderView(discord.ui.View):
                     except discord.NotFound:
                         pass  # сообщение удалено
 
-            await interaction.response.edit_message(
-                content="✅ Изменения сохранены.", embed=None, view=None
-            )
+            await interaction.edit_original_response(content="✅ Изменения сохранены.")
         else:
             target_user = await get_initiator(interaction)
 
             if target_user.last_supply_at:
-                cooldown_time = target_user.last_supply_at + datetime.timedelta(hours=3)
+                cooldown_time = target_user.last_supply_at + datetime.timedelta(hours=6)
                 if datetime.datetime.now() < cooldown_time:
                     remaining = cooldown_time - datetime.datetime.now()
                     hours, remainder = divmod(int(remaining.total_seconds()), 3600)
                     minutes, _ = divmod(remainder, 60)
-                    await interaction.response.send_message(
-                        f"❌ У вас КД на получение склада. "
-                        f"Осталось: {hours}ч {minutes}м.",
-                        ephemeral=True,
+                    await interaction.edit_original_response(
+                        content=f"❌ У вас КД на получение склада. Осталось: {hours}ч {minutes}м."
                     )
                     return
 
@@ -358,9 +347,11 @@ class SupplyBuilderView(discord.ui.View):
 
                 await update_bottom_message(interaction.client)
 
-            await interaction.response.edit_message(
-                content="✅ Заявка успешно отправлена!", embed=None, view=None
-            )
+            try:
+                await self.original_interaction.delete_original_response()
+            except discord.NotFound:
+                pass
+            await interaction.edit_original_response(content="✅ Заявка успешно отправлена!")
 
 
 class SupplyManageButton(
@@ -397,16 +388,16 @@ class SupplyManageButton(
         return cls(match.group("action"), int(match.group("id")))
 
     async def callback(self, interaction: Interaction) -> None:
+        await interaction.response.send_message("⏳ Выполняются действия...", ephemeral=True)
+
         req = await SupplyRequest.find_one(SupplyRequest.id == self.request_id)
         if not req:
-            await interaction.response.send_message(
-                "❌ Заявка не найдена в базе данных.", ephemeral=True
-            )
+            await interaction.edit_original_response(content=f"❌ Заявка #{self.request_id} не найдена в базе данных.")
             return
 
         if req.status != "PENDING":
-            await interaction.response.send_message(
-                f"❌ Эта заявка уже обработана (Статус: {req.status}).", ephemeral=True
+            await interaction.edit_original_response(
+                content=f"❌ Заявка #{self.request_id} уже обработана (Статус: {req.status})."
             )
             return
 
@@ -414,18 +405,16 @@ class SupplyManageButton(
 
         if self.action == "edit":
             if user.discord_id != req.user_id and (user.rank or 0) < config.RankIndex.MAJOR:
-                await interaction.response.send_message(
-                    "❌ У вас недостаточно прав для этого действия (Требуется: Майор+).",
-                    ephemeral=True,
+                await interaction.edit_original_response(
+                    content="❌ У вас недостаточно прав для этого действия (Требуется: Майор+)."
                 )
                 return
             await handle_edit(interaction, req)
             return
 
         if (user.rank or 0) < config.RankIndex.MAJOR:
-            await interaction.response.send_message(
-                "❌ У вас недостаточно прав для этого действия (Требуется: Майор+).",
-                ephemeral=True,
+            await interaction.edit_original_response(
+                content="❌ У вас недостаточно прав для этого действия (Требуется: Майор+)."
             )
             return
 
@@ -456,22 +445,20 @@ class SupplyCreateView(discord.ui.View):
     async def create_request(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
+        await interaction.response.send_message("⏳ Обработка запроса...", ephemeral=True)
+
         user = await get_initiator(interaction)
 
         if not user or (user.rank or 0) < 4:
-            await interaction.response.send_message(
-                "❌ Доступно со звания Старший Сержант.", ephemeral=True
+            return await interaction.edit_original_response(
+                content="❌ Доступно со звания Старший Сержант."
             )
-            return
 
         user_roles = [role.id for role in interaction.user.roles]
         if any(role_id in PENALTY_ROLES for role_id in user_roles):
-            await interaction.response.send_message(
-                "❌ Вы не можете создавать заявки на склад, "
-                "пока у вас есть активные дисциплинарные взыскания.",
-                ephemeral=True,
+            return await interaction.edit_original_response(
+                content="❌ Вы не можете создавать заявки на склад, пока у вас есть активные дисциплинарные взыскания."
             )
-            return
 
         cutoff = datetime.datetime.now() - datetime.timedelta(hours=24)
         existing = await SupplyRequest.find_one(
@@ -480,12 +467,9 @@ class SupplyCreateView(discord.ui.View):
             SupplyRequest.created_at >= cutoff,
         )
         if existing:
-            await interaction.response.send_message(
-                f"❌ У вас уже есть активная заявка #{existing.id}. "
-                "Дождитесь её рассмотрения.",
-                ephemeral=True,
+            return await interaction.edit_original_response(
+                content=f"❌ У вас уже есть активная заявка #{existing.id}. Дождитесь её рассмотрения."
             )
-            return
 
         new_id = await get_next_id("supply_requests")
         req = SupplyRequest(id=new_id, user_id=interaction.user.id, status="DRAFT")
@@ -498,4 +482,4 @@ class SupplyCreateView(discord.ui.View):
             text="Используйте кнопки категорий ниже для добавления предметов."
         )
 
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        await interaction.edit_original_response(content=None, embed=embed, view=view)

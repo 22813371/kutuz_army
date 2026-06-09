@@ -3,6 +3,7 @@ from .dismissal import (
     DismissalCancelButton,
     DismissalManagementButton,
 )
+from .leave import ICLeaveApplyView, OOCLeaveApplyView, LeaveManagementButton
 from .logistics import LogisticsApplyView, LogisticsManagementButton
 from .materials import MaterialsReportView
 from .reinstatement import (
@@ -11,11 +12,11 @@ from .reinstatement import (
     ReinstatementRankSelect,
     RejectReinstatementButton,
 )
-from .role_getting import ApproveRoleButton, RejectRoleButton, RoleApplyView
+from .role_getting import RoleApplyView, RoleManagementButton, RoleLegacyButton
 from .sso_patrol import SSOPatrolApplyView, SSOPatrolManagementButton
 from .supplies import SupplyCreateView, SupplyManageButton
 from .supplies_audit import SupplyAuditView
-from .timeoff import TimeoffApplyView, ApproveTimeoffButton, RejectTimeoffButton, TimeoffCancelButton
+from .timeoff import TimeoffApplyView, TimeoffCancelButton, TimeoffManagementButton, TimeoffLegacyButton
 from .transfers import (
     ApproveTransferButton,
     OldApproveButton,
@@ -37,6 +38,8 @@ def load_persistent_views(bot):
     bot.add_view(SSOPatrolApplyView())
     bot.add_view(MaterialsReportView())
     bot.add_view(LogisticsApplyView())
+    bot.add_view(ICLeaveApplyView())
+    bot.add_view(OOCLeaveApplyView())
 
 
 def load_buttons(bot):
@@ -44,8 +47,7 @@ def load_buttons(bot):
         ApproveReinstatementButton,
         ReinstatementRankSelect,
         RejectReinstatementButton,
-        ApproveRoleButton,
-        RejectRoleButton,
+        RoleManagementButton,
         SupplyManageButton,
         DismissalManagementButton,
         DismissalCancelButton,
@@ -53,10 +55,12 @@ def load_buttons(bot):
         ApproveTransferButton,
         RejectTransferButton,
         OldApproveButton,
-        ApproveTimeoffButton,
-        RejectTimeoffButton,
+        TimeoffManagementButton,
         TimeoffCancelButton,
         SSOPatrolManagementButton,
         LogisticsManagementButton,
+        LeaveManagementButton,
+        RoleLegacyButton,  # Временная
+        TimeoffLegacyButton,  # Временная
     )
     load_persistent_views(bot)

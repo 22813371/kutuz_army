@@ -68,14 +68,13 @@ class UserEdit(commands.Cog):
             )
             return False
 
-        if target_user_db.rank is not None:
-            if (editor_db.rank or 0) <= target_user_db.rank:
-                await interaction.response.send_message(
-                    "❌ Вы не можете редактировать пользователей "
-                    "равного или старшего звания.",
-                    ephemeral=True,
-                )
-                return False
+        if (editor_db.rank or 0) <= (target_user_db.rank or 0):
+            await interaction.response.send_message(
+                "❌ Вы не можете редактировать пользователей "
+                "равного или старшего звания.",
+                ephemeral=True,
+            )
+            return False
 
         return True
 
@@ -155,6 +154,12 @@ class UserEdit(commands.Cog):
             )
             return
 
+        if user_info.rank is None:
+            await interaction.response.send_message(
+                "❌ Пользователь не состоит на службе.", ephemeral=True
+            )
+            return
+
         if not await self._check_permissions(interaction, user_info):
             return
 
@@ -189,6 +194,9 @@ class UserEdit(commands.Cog):
             user_info.division = None
             user_info.position = None
             await user_info.save()
+
+            from utils.dismissal_logic import cleanup_user_leaves
+            await cleanup_user_leaves(interaction.client, user.id)
 
             await modal_interaction.edit_original_response(
                 content=f"✅ {user.mention} уволен."
@@ -230,6 +238,12 @@ class UserEdit(commands.Cog):
             )
             return
 
+        if user_info.rank is None:
+            await interaction.response.send_message(
+                "❌ Пользователь не состоит на службе.", ephemeral=True
+            )
+            return
+
         if not await self._check_permissions(interaction, user_info):
             return
 
@@ -244,9 +258,7 @@ class UserEdit(commands.Cog):
 
         old_rank = user_info.rank
 
-        if user_info.rank is None:
-            user_info.rank = 0
-        elif user_info.rank < len(config.RANKS) - 1:
+        if user_info.rank < len(config.RANKS) - 1:
             user_info.rank += 1
         else:
             await interaction.response.send_message(

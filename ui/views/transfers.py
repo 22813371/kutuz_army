@@ -45,7 +45,7 @@ class TransferView(discord.ui.LayoutView):
 
 
 def can_user_handle_transfer(user: User, division_ids: list[int]) -> bool:
-    if (user.rank or 0) > config.RankIndex.COLONEL:
+    if (user.rank or 0) >= config.RankIndex.COLONEL:
         return True
 
     if user.division not in division_ids:
@@ -93,13 +93,20 @@ class TransferApply(
         )
         if opened_request is not None:
             await interaction.response.send_message(
-                "### У вас уже есть открытое заявление на рассмотрении.\n"
+                f"### У вас уже есть открытое заявление #{opened_request.id} на рассмотрении.\n"
                 "Ожидайте его рассмотрения.",
                 ephemeral=True,
             )
             return
 
         user = await get_initiator(interaction)
+        if not user or user.rank is None:
+            await interaction.response.send_message(
+                "❌ Вы не состоите на службе и не можете подать заявление.",
+                ephemeral=True,
+            )
+            return
+
         if user and user.division == self.division.division_id:
             await interaction.response.send_message(
                 f"### Вы уже состоите в подразделении "
@@ -148,6 +155,10 @@ class OldApproveButton(
         return cls(request_id, division_id)
 
     async def callback(self, interaction: Interaction[ClientT]) -> Any:
+        from utils.mongo_lock import try_lock
+        if not await try_lock(TransferRequest, self.request_id, "status", "PROCESSING", "OLD_DIVISION_REVIEW"):
+            return await interaction.response.send_message("❌ Запрос уже обрабатывается.", ephemeral=True)
+
         request = await TransferRequest.find_one(TransferRequest.id == self.request_id)
         if not request:
             await interaction.response.send_message("Запрос не найден.", ephemeral=True)
@@ -156,6 +167,10 @@ class OldApproveButton(
         officer = await get_initiator(interaction)
 
         if not can_user_handle_transfer(officer, [request.old_division_id]):
+            await TransferRequest.get_pymongo_collection().update_one(
+                {"_id": self.request_id}, {"$set": {"status": "OLD_DIVISION_REVIEW"}}
+            )
+
             await interaction.response.send_message(
                 "У вас нет прав взаимодействовать с этой кнопкой.", ephemeral=True
             )
@@ -222,6 +237,10 @@ class ApproveTransferButton(
         return cls(request_id, div_id)
 
     async def callback(self, interaction: Interaction[ClientT]) -> Any:
+        from utils.mongo_lock import try_lock
+        if not await try_lock(TransferRequest, self.request_id, "status", "PROCESSING", "NEW_DIVISION_REVIEW"):
+            return await interaction.response.send_message("❌ Запрос уже обрабатывается.", ephemeral=True)
+
         request = await TransferRequest.find_one(TransferRequest.id == self.request_id)
         if not request:
             await interaction.response.send_message("Запрос не найден.", ephemeral=True)
@@ -229,6 +248,10 @@ class ApproveTransferButton(
 
         officer = await get_initiator(interaction)
         if not can_user_handle_transfer(officer, [request.new_division_id]):
+            await TransferRequest.get_pymongo_collection().update_one(
+                {"_id": self.request_id}, {"$set": {"status": "NEW_DIVISION_REVIEW"}}
+            )
+
             await interaction.response.send_message(
                 "У вас нет прав взаимодействовать с этой кнопкой.", ephemeral=True
             )
@@ -308,10 +331,11 @@ class RejectTransferButton(
             await interaction.response.send_message("Запрос не найден.", ephemeral=True)
             return
 
+        old_status = request.status
         officer = await get_initiator(interaction)
 
         if not can_user_handle_transfer(
-            officer, [request.old_division_id, request.new_division_id]
+                officer, [request.old_division_id, request.new_division_id]
         ):
             await interaction.response.send_message(
                 "У вас нет прав взаимодействовать с этой кнопкой.", ephemeral=True
@@ -336,6 +360,11 @@ class RejectTransferButton(
         modal.add_item(reason_input)
 
         async def on_modal_submit(modal_interaction: discord.Interaction):
+            from utils.mongo_lock import try_lock
+            if not await try_lock(TransferRequest, self.request_id, "status", "PROCESSING", old_status):
+                await modal_interaction.response.send_message(f"❌ Запрос #{self.request_id} уже обрабатывается.", ephemeral=True)
+                return
+
             reason = reason_input.value
             request.reject_reason = reason
             request.status = "REJECTED"
@@ -347,7 +376,6 @@ class RejectTransferButton(
                 view=indicator_view("Отклонено", emoji="👎"),
             )
 
-            # Уведомление в ЛС
             await notify_transfer_rejected(interaction.client, request.user_id, reason)
 
         modal.on_submit = on_modal_submit

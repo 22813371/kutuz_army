@@ -1,3 +1,5 @@
+import datetime
+
 import discord.ui
 
 import config
@@ -13,8 +15,58 @@ from ui.modals.labels import (
     name_component,
     static_label,
 )
-from ui.views.role_getting import ApproveRoleButton, RejectRoleButton
+from ui.views.role_getting import RoleManagementButton
 from utils.user_data import formatted_static_to_int
+
+
+async def _reject_stale_pending(interaction: discord.Interaction) -> bool:
+    """
+    Проверяет старую PENDING заявку пользователя.
+    Если она старше 24ч — атомарно отклоняет и возвращает True (можно подавать).
+    Если моложе 24ч — отвечает пользователю и возвращает False.
+    Если заявок нет — возвращает True.
+    """
+    old_pending = await RoleRequest.find_one(
+        RoleRequest.user == interaction.user.id,
+        RoleRequest.status == "PENDING",
+    )
+
+    if old_pending is None:
+        return True
+
+    age = discord.utils.utcnow() - old_pending.sent_at.replace(tzinfo=datetime.timezone.utc)
+
+    if age < config.ROLE_RESUBMIT_COOLDOWN:
+        retry_at = old_pending.sent_at.replace(tzinfo=datetime.timezone.utc) + config.ROLE_RESUBMIT_COOLDOWN
+        await interaction.response.send_message(
+            f"### ⏳ Заявка #{old_pending.id} уже подана\n"
+            f"Повторно подать можно {discord.utils.format_dt(retry_at, 'R')}, "
+            f"если текущая не будет рассмотрена.",
+            ephemeral=True,
+        )
+        return False
+
+    result = await RoleRequest.get_pymongo_collection().update_one(
+        {"_id": old_pending.id, "status": "PENDING"},
+        {"$set": {"status": "REJECTED"}},
+    )
+
+    if result.modified_count == 0:
+        await interaction.response.send_message(
+            f"### ⏳ Заявка #{old_pending.id} уже подана\nПодождите завершения.",
+            ephemeral=True,
+        )
+        return False
+
+    if old_pending.message_id:
+        try:
+            msg = await interaction.channel.fetch_message(old_pending.message_id)
+            old_pending.status = "REJECTED"
+            await msg.edit(embed=await old_pending.to_embed(), view=None)
+        except Exception:
+            pass
+
+    return True
 
 
 class RoleRequestModal(discord.ui.Modal, title="Заявление на получение роли"):
@@ -30,16 +82,7 @@ class RoleRequestModal(discord.ui.Modal, title="Заявление на полу
         self.static_id.component.default = static_id
 
     async def on_submit(self, interaction: discord.Interaction):
-        opened_request = await RoleRequest.find_one(
-            RoleRequest.user == interaction.user.id,
-            RoleRequest.checked == False,  # noqa: E712
-        )
-        if opened_request is not None:
-            await interaction.response.send_message(
-                "### У вас уже есть открытое заявление на рассмотрении.\n"
-                "Ожидайте его рассмотрения.",
-                ephemeral=True,
-            )
+        if not await _reject_stale_pending(interaction):
             return
 
         try:
@@ -75,13 +118,85 @@ class RoleRequestModal(discord.ui.Modal, title="Заявление на полу
         await request.create()
 
         view = discord.ui.View(timeout=None)
-        view.add_item(ApproveRoleButton(request_id=request.id))
-        view.add_item(RejectRoleButton(request_id=request.id))
-        await interaction.channel.send(
+        view.add_item(RoleManagementButton("approve", request.id))
+        view.add_item(RoleManagementButton("reject", request.id))
+        sent_msg = await interaction.channel.send(
             content=f"-# ||<@{interaction.user.id}>||",
             embed=await request.to_embed(),
             view=view,
         )
+        request.message_id = sent_msg.id
+        await request.save()
+
+        from cogs.role_getting import update_bottom_message
+
+        await update_bottom_message(interaction.client)
+
+
+class KMBRequestModal(discord.ui.Modal, title="Заявление на УКМБ"):
+    name = name_component()
+    static_id = static_label()
+    footer = discord.ui.TextDisplay(
+        "Если вы что-то не понимаете, обратитесь к военнослужащему за помощью."
+    )
+
+    def __init__(self, user_name: str | None, static_id: str | None):
+        super().__init__()
+        self.name.default = user_name
+        self.static_id.component.default = static_id
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if not await _reject_stale_pending(interaction):
+            return
+
+        try:
+            static_id = formatted_static_to_int(self.static_id.component.value)
+        except (ValueError, TypeError):
+            await interaction.response.send_message(
+                "### Вы ввели некорректный статик. "
+                "Правильный формат: ХХХ-ХХХ. Пример: 537-328.",
+                ephemeral=True,
+            )
+            return
+
+        if not nickname_regex.match(self.name.value):
+            await interaction.response.send_message(
+                "### Вы ввели некорректное имя и фамилию. "
+                "Правильный формат: Иван Иванов.",
+                ephemeral=True,
+            )
+            return
+
+        try:
+            await interaction.response.send_message(
+                "### Заявление отправлено на рассмотрение.", ephemeral=True
+            )
+        except discord.NotFound:
+            pass
+
+        request = RoleRequest(
+            id=await get_next_id("role_requests"),
+            user=interaction.user.id,
+            role_type=RoleType.KMB,
+            data=RoleData(
+                full_name=self.name.value,
+                static_id=static_id,
+            )
+        )
+        await request.create()
+
+        view = discord.ui.View(timeout=None)
+        view.add_item(RoleManagementButton("approve", request.id))
+        view.add_item(RoleManagementButton("reject", request.id))
+
+        sent_msg = await interaction.channel.send(
+            content=f"-# ||<@{interaction.user.id}>||",
+            embed=await request.to_embed(),
+            view=view,
+        )
+
+        request.message_id = sent_msg.id
+        await request.save()
 
         from cogs.role_getting import update_bottom_message
 
@@ -115,16 +230,7 @@ class SupplyAccessModal(discord.ui.Modal, title="Заявление на дос�
         self.static_id.default = static_id
 
     async def on_submit(self, interaction: discord.Interaction):
-        opened_request = await RoleRequest.find_one(
-            RoleRequest.user == interaction.user.id,
-            RoleRequest.checked == False,  # noqa: E712
-        )
-        if opened_request is not None:
-            await interaction.response.send_message(
-                "### У вас уже есть открытое заявление на рассмотрении.\n"
-                "Ожидайте его рассмотрения.",
-                ephemeral=True,
-            )
+        if not await _reject_stale_pending(interaction):
             return
 
         try:
@@ -166,13 +272,16 @@ class SupplyAccessModal(discord.ui.Modal, title="Заявление на дос�
         )
 
         view = discord.ui.View(timeout=None)
-        view.add_item(ApproveRoleButton(request_id=request.id))
-        view.add_item(RejectRoleButton(request_id=request.id))
-        await interaction.channel.send(
+        view.add_item(RoleManagementButton("approve", request.id))
+        view.add_item(RoleManagementButton("reject", request.id))
+        sent_msg = await interaction.channel.send(
             content=f"-# ||<@{interaction.user.id}> {colonel_mentions}||",
             embed=await request.to_embed(),
             view=view,
         )
+
+        request.message_id = sent_msg.id
+        await request.save()
 
         from cogs.role_getting import update_bottom_message
 
@@ -207,16 +316,7 @@ class GovEmployeeModal(discord.ui.Modal, title="Заявление на роль
         self.static_id.default = static_id
 
     async def on_submit(self, interaction: discord.Interaction):
-        opened_request = await RoleRequest.find_one(
-            RoleRequest.user == interaction.user.id,
-            RoleRequest.checked == False,  # noqa: E712
-        )
-        if opened_request is not None:
-            await interaction.response.send_message(
-                "### У вас уже есть открытое заявление на рассмотрении.\n"
-                "Ожидайте его рассмотрения.",
-                ephemeral=True,
-            )
+        if not await _reject_stale_pending(interaction):
             return
 
         try:
@@ -229,9 +329,12 @@ class GovEmployeeModal(discord.ui.Modal, title="Заявление на роль
             )
             return
 
-        await interaction.response.send_message(
-            "### Заявление отправлено на рассмотрение.", ephemeral=True
-        )
+        try:
+            await interaction.response.send_message(
+                "### Заявление отправлено на рассмотрение.", ephemeral=True
+            )
+        except discord.NotFound:
+            pass
 
         request = RoleRequest(
             id=await get_next_id("role_requests"),
@@ -255,13 +358,16 @@ class GovEmployeeModal(discord.ui.Modal, title="Заявление на роль
         )
 
         view = discord.ui.View(timeout=None)
-        view.add_item(ApproveRoleButton(request_id=request.id))
-        view.add_item(RejectRoleButton(request_id=request.id))
-        await interaction.channel.send(
+        view.add_item(RoleManagementButton("approve", request.id))
+        view.add_item(RoleManagementButton("reject", request.id))
+        sent_msg = await interaction.channel.send(
             content=f"-# ||<@{interaction.user.id}> {colonel_mentions}||",
             embed=await request.to_embed(),
             view=view,
         )
+
+        request.message_id = sent_msg.id
+        await request.save()
 
         from cogs.role_getting import update_bottom_message
 

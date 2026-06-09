@@ -1,10 +1,15 @@
+import asyncio
 import datetime
+import logging
 from discord.ext import commands, tasks
 import config
 from bot import Bot
 from database.models import LogisticsRequest
 from ui.views.logistics import LogisticsApplyView
 from utils.bottom_message import update_bottom_message as _update_bottom_message
+from utils.permissions import has_update_permission
+
+logger = logging.getLogger(__name__)
 
 # 03:00 MSK = 00:00 UTC
 RESTART_TIME = datetime.time(hour=0, minute=0, tzinfo=datetime.timezone.utc)
@@ -23,8 +28,13 @@ class Logistics(commands.Cog):
 
     @tasks.loop(time=RESTART_TIME)
     async def cleanup_task(self):
-        """Автоматически отклоняет все PENDING заявки при рестарте."""
-        pending = await LogisticsRequest.find(LogisticsRequest.status == "PENDING").to_list()
+        """Автоматически отклоняет все PENDING заявки за предыдущие дни при рестарте."""
+        now = datetime.datetime.now(datetime.timezone.utc)
+        cutoff = now.replace(hour=0, minute=0, second=0, microsecond=0) - datetime.timedelta(hours=3)
+        pending = await LogisticsRequest.find(
+            LogisticsRequest.status == "PENDING",
+            LogisticsRequest.created_at < cutoff,
+        ).to_list()
         if not pending: return
 
         channel = self.bot.get_channel(config.CHANNELS["logistics"])
@@ -37,11 +47,13 @@ class Logistics(commands.Cog):
                 try:
                     msg = await channel.fetch_message(req.message_id)
                     await msg.edit(embed=await req.to_embed(), view=None)
-                except:
+                except Exception as e:
+                    logger.error(f"Error updating logistics message #{req.id}: {e}")
                     continue
+            await asyncio.sleep(1)
 
     @commands.command(name="refresh_logistics")
-    @commands.has_permissions(administrator=True)
+    @has_update_permission()
     async def update_command(self, ctx: commands.Context):
         if ctx.channel.id != channel_id:
             return
