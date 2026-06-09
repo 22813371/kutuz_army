@@ -94,7 +94,7 @@ class User(Document):
         if self.division is not None:
             div = divisions.get_division(self.division)
             if div:
-                if div.abbreviation in ["УР", "УКМБ"]:
+                if div.abbreviation in ["УР", "ВА"]:
                     parts.append(div.abbreviation)
                 else:
                     parts.append(transliterate_abbreviation(div.abbreviation))

@@ -12,7 +12,7 @@ async def check_and_apply_penalty(
         audit_msg_url: str
 ) -> bool:
 
-    # УКМБ не выдаем ЧС за неустойку
+    # КМБ не выдаем ЧС за неустойку
     if target_user_db.division == 8:
         return False
 

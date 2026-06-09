@@ -36,7 +36,7 @@ async def apply_leave_nick_and_role(
         parts = [leave_type.value]
 
         if div and (abbr := div.abbreviation):
-            parts.append(abbr if abbr in ["УР", "УКМБ"] else transliterate_abbreviation(abbr))
+            parts.append(abbr if abbr in ["УР", "ВА"] else transliterate_abbreviation(abbr))
 
         if user_db.rank is not None:
             parts.append(config.RANKS_SHORT[user_db.rank])

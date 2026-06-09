@@ -192,7 +192,7 @@ async def _apply_role_discord(interaction: Interaction[ClientT], request: RoleRe
         await user.save()
 
         extra_role = config.RoleId.MILITARY_ACADEMY.value if request.role_type == RoleType.ARMY else config.RoleId.KMB.value
-        role_ids = [config.RoleId.MILITARY.value, config.RANK_ROLES[config.RANKS[0]], extra_role]
+        role_ids = [config.RoleId.MILITARY.value, config.RANK_ROLES[config.RANKS[0]], extra_role, config.RoleId.DIV]
         roles_to_add = [interaction.guild.get_role(rid) for rid in role_ids]
         new_roles = [r for r in user_discord.roles if r.id not in role_ids] + [r for r in roles_to_add if r]
 
