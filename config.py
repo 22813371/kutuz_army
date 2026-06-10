@@ -114,6 +114,8 @@ CHANNELS = (
         "sso_patrol": 1473312304417214497,
         "materials": 1473300267033165975,
         "logistics": 1473296938727374891,
+        "ic_leave": 1473300394259255379,
+        "ooc_leave": 1473300414639112244,
     }
     if IS_PRODUCTION
     else {
@@ -129,6 +131,8 @@ CHANNELS = (
         "sso_patrol": 1473312304417214497,
         "materials": 1473300267033165975,
         "logistics": 1473296938727374891,
+        "ic_leave": 1276358675396690024,
+        "ooc_leave": 1246119775436931182,
     }
 )
 
@@ -229,6 +233,7 @@ else:
 
     class RoleId(Enum):
         REINFORCEMENT = 1465597518682263552
+        ATTESTATION = 1465597575293042924
         CONTRACT = 1473292614315806780
         MILITARY = 1465597495781363898  # Военнослужащий ВС РФ
         MILITARY_ACADEMY = 1465597494229729463  # Военная академия
